@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.kraken.com)",
+      "WebFetch(domain:www.kraken.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(cd:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

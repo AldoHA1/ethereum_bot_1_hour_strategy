@@ -1,13 +1,13 @@
 export const KRAKEN = {
-  REST_URL: 'https://api.kraken.com',
-  WS_PUBLIC_URL: 'wss://ws.kraken.com/v2',
-  WS_PRIVATE_URL: 'wss://ws-auth.kraken.com/v2',
+  REST_URL: "https://api.kraken.com",
+  WS_PUBLIC_URL: "wss://ws.kraken.com/v2",
+  WS_PRIVATE_URL: "wss://ws-auth.kraken.com/v2",
 
   // Trading pairs
-  ETH_PAIR: 'ETHUSD',
-  ETH_WS_PAIR: 'ETH/USD',
-  BTC_PAIR: 'XBTUSD',
-  BTC_WS_PAIR: 'XBT/USD',
+  ETH_PAIR: "ETHUSD",
+  ETH_WS_PAIR: "ETH/USD",
+  BTC_PAIR: "BTCUSD",
+  BTC_WS_PAIR: "BTC/USD",
 
   // Candle interval in minutes
   INTERVAL_1H: 60,

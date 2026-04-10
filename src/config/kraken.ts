@@ -3,14 +3,12 @@ export const KRAKEN = {
   WS_PUBLIC_URL: "wss://ws.kraken.com/v2",
   WS_PRIVATE_URL: "wss://ws-auth.kraken.com/v2",
 
-  // Trading pairs
+  // Trading pair
   ETH_PAIR: "ETHUSD",
   ETH_WS_PAIR: "ETH/USD",
-  BTC_PAIR: "BTCUSD",
-  BTC_WS_PAIR: "BTC/USD",
 
   // Candle interval in minutes
-  INTERVAL_1H: 60,
+  INTERVAL_5M: 5,
 
   // Min order sizes
   MIN_ORDER_ETH: 0.01,

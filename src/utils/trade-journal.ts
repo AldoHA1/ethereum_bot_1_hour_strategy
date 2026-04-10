@@ -5,7 +5,7 @@ import { ExitReason } from '../strategy/types';
 
 const JOURNAL_PATH = path.resolve(process.cwd(), 'logs', 'trades.csv');
 const HEADER =
-  'timestamp,side,entry_mode,entry_price,exit_price,qty,pnl_usd,pnl_pct,exit_reason,duration_hours,atr_at_entry,fees_est,equity_after\n';
+  'timestamp,side,entry_price,exit_price,qty,pnl_usd,pnl_pct,exit_reason,duration_hours,atr_at_entry,fees_est,equity_after\n';
 
 function ensureFile(): void {
   const dir = path.dirname(JOURNAL_PATH);
@@ -35,7 +35,7 @@ export function recordTrade(params: {
   const durationH = (Date.now() - pos.entryTime) / (1000 * 60 * 60);
 
   const line =
-    `${new Date().toISOString()},${pos.side},${pos.entryMode},` +
+    `${new Date().toISOString()},${pos.side},` +
     `${pos.entryPrice.toFixed(2)},${exitPrice.toFixed(2)},${exitQty.toFixed(6)},` +
     `${pnlUsd.toFixed(2)},${pnlPct.toFixed(2)},${exitReason},` +
     `${durationH.toFixed(1)},${pos.atrAtEntry.toFixed(2)},` +

@@ -1,4 +1,4 @@
-import { EntryMode, SignalSide } from '../strategy/types';
+import { SignalSide } from '../strategy/types';
 
 export interface Position {
   id: string;
@@ -8,8 +8,6 @@ export interface Position {
   initialQty: number;
   remainingQty: number;
   atrAtEntry: number;
-  entryMode: EntryMode;
-  isHighQuality: boolean;
   tp1Hit: boolean;
   tp2Hit: boolean;
   tp3Hit: boolean;
@@ -24,8 +22,6 @@ export function createPosition(params: {
   entryPrice: number;
   qty: number;
   atr: number;
-  mode: EntryMode;
-  isHQ: boolean;
   orderTxid: string;
 }): Position {
   return {
@@ -36,8 +32,6 @@ export function createPosition(params: {
     initialQty: params.qty,
     remainingQty: params.qty,
     atrAtEntry: params.atr,
-    entryMode: params.mode,
-    isHighQuality: params.isHQ,
     tp1Hit: false,
     tp2Hit: false,
     tp3Hit: false,

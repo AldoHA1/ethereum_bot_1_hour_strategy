@@ -31,17 +31,15 @@ function checkPositionExits(
   const decisions: ExitDecision[] = [];
   const isLong = pos.side === 'long';
   const price = s.currentClose;
-  const atr = s.atr14;
   const barsHeld = Math.floor((Date.now() - pos.entryTime) / (1000 * 60 * 60));
-
-  // Calculate PnL %
-  const pnlPct = isLong
-    ? ((price - pos.entryPrice) / pos.entryPrice) * 100
-    : ((pos.entryPrice - price) / pos.entryPrice) * 100;
 
   const profitDist = isLong
     ? price - pos.entryPrice
     : pos.entryPrice - price;
+
+  const pnlPct = isLong
+    ? ((price - pos.entryPrice) / pos.entryPrice) * 100
+    : ((pos.entryPrice - price) / pos.entryPrice) * 100;
 
   // TP1: 1.2x ATR → close 35%
   if (!pos.tp1Hit && profitDist >= pos.atrAtEntry * STRATEGY.TP1_ATR_MULT) {
@@ -51,7 +49,7 @@ function checkPositionExits(
       closePercent: STRATEGY.TP1_PCT,
       description: `TP1 hit at ${price.toFixed(2)} (+${(profitDist / pos.atrAtEntry).toFixed(1)}x ATR)`,
     });
-    return decisions; // Process one TP at a time
+    return decisions;
   }
 
   // TP2: 2.0x ATR → close 35%
@@ -124,94 +122,25 @@ function checkPositionExits(
     }
   }
 
-  // Smart exits (RSI + Stochastic, EMA ribbon, VWAP cross)
-  if (STRATEGY.USE_RSI_EXIT && barsHeld >= 2) {
-    if (isLong) {
-      // RSI + Stoch overbought → close if profitable
-      if (
-        s.rsi > 73 &&
-        s.stochK > 78 &&
-        s.stochK < s.stochD &&
-        s.stochKPrev1 >= s.stochDPrev1 &&
-        pnlPct > 0.3
-      ) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'rsi_stoch_exit',
-          closePercent: 100,
-          description: `RSI+Stoch exit: RSI=${s.rsi.toFixed(1)}, %K=${s.stochK.toFixed(1)}`,
-        });
-        return decisions;
-      }
-
-      // EMA ribbon collapse
-      if (s.emaFast < s.emaMid && pnlPct > 0.2 && barsHeld >= 3) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'ribbon_exit',
-          closePercent: 100,
-          description: `Ribbon collapse: EMA9 < EMA21`,
-        });
-        return decisions;
-      }
-
-      // VWAP cross (price drops below VWAP)
-      if (
-        STRATEGY.USE_VWAP &&
-        s.currentClose < s.vwap &&
-        s.prevClose > s.vwap &&
-        pnlPct > 0.1
-      ) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'vwap_exit',
-          closePercent: 100,
-          description: `VWAP cross exit: price dropped below VWAP`,
-        });
-        return decisions;
-      }
-    } else {
-      // Short exits
-      if (
-        s.rsi < 27 &&
-        s.stochK < 22 &&
-        s.stochK > s.stochD &&
-        s.stochKPrev1 <= s.stochDPrev1 &&
-        pnlPct > 0.3
-      ) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'rsi_stoch_exit',
-          closePercent: 100,
-          description: `RSI+Stoch exit: RSI=${s.rsi.toFixed(1)}, %K=${s.stochK.toFixed(1)}`,
-        });
-        return decisions;
-      }
-
-      if (s.emaFast > s.emaMid && pnlPct > 0.2 && barsHeld >= 3) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'ribbon_exit',
-          closePercent: 100,
-          description: `Ribbon reversal: EMA9 > EMA21`,
-        });
-        return decisions;
-      }
-
-      if (
-        STRATEGY.USE_VWAP &&
-        s.currentClose > s.vwap &&
-        s.prevClose < s.vwap &&
-        pnlPct > 0.1
-      ) {
-        decisions.push({
-          positionId: pos.id,
-          reason: 'vwap_exit',
-          closePercent: 100,
-          description: `VWAP cross exit: price rose above VWAP`,
-        });
-        return decisions;
-      }
+  // MA cross exit: if MA9 crosses against position direction, close if profitable
+  if (barsHeld >= 2 && pnlPct > 0.2) {
+    if (isLong && s.ma9 < s.ma21 && s.ma9Prev1 >= s.ma21Prev1) {
+      decisions.push({
+        positionId: pos.id,
+        reason: 'ma_cross_exit',
+        closePercent: 100,
+        description: `MA cross exit: MA9 crossed below MA21`,
+      });
+      return decisions;
+    }
+    if (!isLong && s.ma9 > s.ma21 && s.ma9Prev1 <= s.ma21Prev1) {
+      decisions.push({
+        positionId: pos.id,
+        reason: 'ma_cross_exit',
+        closePercent: 100,
+        description: `MA cross exit: MA9 crossed above MA21`,
+      });
+      return decisions;
     }
   }
 

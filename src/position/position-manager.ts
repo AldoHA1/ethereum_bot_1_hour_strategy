@@ -5,6 +5,7 @@ import { Signal } from '../strategy/types';
 import { IndicatorSnapshot } from '../strategy/types';
 import { ExitDecision } from '../strategy/exit-manager';
 import * as orderManager from '../exchange/order-manager';
+import * as rest from '../exchange/rest-client';
 import { CircuitBreakerState, isHotStreak } from '../strategy/circuit-breakers';
 import { logger } from '../utils/logger';
 import { roundDown } from '../utils/math';
@@ -49,9 +50,19 @@ export class PositionManager {
     }
 
     const equity = cbState.currentEquity;
+
+    // Fetch available USD balance to prevent insufficient funds errors
+    let availableBalance = equity;
+    try {
+      const tradeBalance = await rest.getTradeBalance();
+      availableBalance = parseFloat(tradeBalance.mf) || equity;
+    } catch (err) {
+      logger.warn(`Failed to fetch available balance, using equity: ${err}`);
+    }
+
     const qty = calculatePositionSize({
       equity,
-      isHighQuality: signal.isHighQuality,
+      availableBalance,
       isHotStreak: isHotStreak(cbState),
       atr: snapshot.atr14,
       entryPrice: snapshot.currentClose,
@@ -76,16 +87,14 @@ export class PositionManager {
       entryPrice: snapshot.currentClose,
       qty,
       atr: snapshot.atr14,
-      mode: signal.mode,
-      isHQ: signal.isHighQuality,
       orderTxid: result.txid,
     });
 
     this.positions.push(pos);
     logger.info(
-      `Position opened: ${pos.id} ${signal.side.toUpperCase()} ${signal.mode} ` +
+      `Position opened: ${pos.id} ${signal.side.toUpperCase()} ` +
         `qty=${qty.toFixed(6)} entry=${snapshot.currentClose.toFixed(2)} ` +
-        `SL=${slPrice.toFixed(2)} HQ=${signal.isHighQuality}`
+        `SL=${slPrice.toFixed(2)}`
     );
 
     return pos;

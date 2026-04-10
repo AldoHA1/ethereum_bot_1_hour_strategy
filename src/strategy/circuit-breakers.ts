@@ -1,5 +1,4 @@
 import { STRATEGY } from '../config';
-import { IndicatorSnapshot } from './types';
 
 export interface CircuitBreakerState {
   lastLossTimestamp: number;
@@ -32,16 +31,8 @@ export function checkDailyReset(state: CircuitBreakerState): CircuitBreakerState
 }
 
 export function canTrade(
-  state: CircuitBreakerState,
-  snapshot: IndicatorSnapshot
+  state: CircuitBreakerState
 ): { allowed: boolean; reason: string } {
-  // Spread protection: ATR(3) > 3x ATR(14)
-  if (STRATEGY.USE_SPREAD_PROT) {
-    if (snapshot.atr3 > snapshot.atr14 * STRATEGY.SPREAD_MULT) {
-      return { allowed: false, reason: 'Abnormal spread detected' };
-    }
-  }
-
   // Pause after loss
   if (STRATEGY.PAUSE_BARS_H > 0 && state.lastLossTimestamp > 0) {
     const hoursSinceLoss =

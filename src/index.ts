@@ -25,7 +25,7 @@ import { logger } from './utils/logger';
 import { recordTrade } from './utils/trade-journal';
 
 class TradingBot {
-  private wsPublic!: KrakenWsClient;
+  private ws!: KrakenWsClient;
   private dataFeed!: DataFeed;
   private positionManager = new PositionManager();
   private state!: BotStateData;
@@ -34,8 +34,9 @@ class TradingBot {
 
   async start(): Promise<void> {
     logger.info('========================================');
-    logger.info('ETH/USD 1H Trading Bot - Starting');
+    logger.info('ETH/USD 5M MA Crossover Bot - Starting');
     logger.info(`Mode: ${ENV.dryRun ? 'DRY RUN' : 'LIVE'}`);
+    logger.info(`Strategy: MA(${STRATEGY.MA_FAST}) x MA(${STRATEGY.MA_SLOW})`);
     logger.info('========================================');
 
     // Step 1: Get balance and initialize state
@@ -57,18 +58,14 @@ class TradingBot {
     }
 
     // Step 2: Initialize WebSocket
-    this.wsPublic = new KrakenWsClient(KRAKEN.WS_PUBLIC_URL);
-    this.dataFeed = new DataFeed(this.wsPublic);
+    this.ws = new KrakenWsClient(KRAKEN.WS_PUBLIC_URL);
+    this.dataFeed = new DataFeed(this.ws);
 
     // Step 3: Backfill historical candles
     await this.dataFeed.backfill();
 
     // Step 4: Verify indicators are calculable
-    const testSnapshot = buildSnapshot(
-      this.dataFeed.ethStore1h,
-      this.dataFeed.ethStore4h,
-      this.dataFeed.btcStore4h
-    );
+    const testSnapshot = buildSnapshot(this.dataFeed.ethStore5m);
     if (testSnapshot) {
       logger.info('Indicator computation verified successfully');
       logSnapshot(testSnapshot);
@@ -78,9 +75,9 @@ class TradingBot {
     }
 
     // Step 5: Connect WebSocket and subscribe
-    this.wsPublic.connect();
+    this.ws.connect();
 
-    this.wsPublic.on('connected', () => {
+    this.ws.on('connected', () => {
       this.dataFeed.subscribeToCandles();
     });
 
@@ -109,11 +106,7 @@ class TradingBot {
     );
 
     // Build indicator snapshot
-    const snapshot = buildSnapshot(
-      this.dataFeed.ethStore1h,
-      this.dataFeed.ethStore4h,
-      this.dataFeed.btcStore4h
-    );
+    const snapshot = buildSnapshot(this.dataFeed.ethStore5m);
 
     if (!snapshot) {
       logger.warn('Insufficient data for snapshot, skipping');
@@ -179,7 +172,7 @@ class TradingBot {
     }
 
     // Check circuit breakers for new entries
-    const { allowed, reason } = canTrade(this.state.circuitBreaker, snapshot);
+    const { allowed, reason } = canTrade(this.state.circuitBreaker);
 
     if (!allowed) {
       logger.info(`Trading paused: ${reason}`);
@@ -191,10 +184,7 @@ class TradingBot {
     const signal = evaluateSignal(snapshot);
 
     if (signal) {
-      logger.info(
-        `Signal: ${signal.side.toUpperCase()} ${signal.mode} ` +
-          `HQ=${signal.isHighQuality}`
-      );
+      logger.info(`Signal: ${signal.side.toUpperCase()} (MA crossover)`);
 
       const pos = await this.positionManager.executeEntry(
         signal,
@@ -242,7 +232,7 @@ class TradingBot {
   private persistState(): void {
     this.state.positions = this.positionManager.toJSON();
     this.state.lastProcessedCandleTime =
-      this.dataFeed.ethStore1h.lastProcessedTime();
+      this.dataFeed.ethStore5m.lastProcessedTime();
     saveState(this.state);
   }
 
@@ -253,7 +243,7 @@ class TradingBot {
     if (this.dailyResetInterval) clearInterval(this.dailyResetInterval);
 
     this.persistState();
-    this.wsPublic?.close();
+    this.ws?.close();
 
     logger.info(
       `Shutdown complete. ${this.positionManager.getOpenCount()} positions remain open (SL orders active on Kraken).`

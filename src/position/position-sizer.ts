@@ -3,17 +3,15 @@ import { logger } from '../utils/logger';
 
 export function calculatePositionSize(params: {
   equity: number;
-  isHighQuality: boolean;
+  availableBalance: number;
   isHotStreak: boolean;
   atr: number;
   entryPrice: number;
 }): number {
-  const { equity, isHighQuality, isHotStreak, atr, entryPrice } = params;
+  const { equity, availableBalance, isHotStreak, atr, entryPrice } = params;
 
   // Risk percentage
-  let riskPct = isHighQuality
-    ? STRATEGY.RISK_PCT_HQ / 100
-    : STRATEGY.RISK_PCT_BASE / 100;
+  let riskPct = STRATEGY.RISK_PCT / 100;
 
   if (isHotStreak) {
     riskPct *= STRATEGY.HOT_STREAK_MULT;
@@ -37,6 +35,16 @@ export function calculatePositionSize(params: {
   }
 
   let qty = riskAmount / effectiveSL;
+
+  // Cap to 20% of available balance per trade (with slight buffer for slippage/fee rounding)
+  const maxSpend = availableBalance * 0.20 * 0.98;
+  const maxAffordableQty = maxSpend / (entryPrice * (1 + KRAKEN.TAKER_FEE));
+  if (qty > maxAffordableQty) {
+    logger.warn(
+      `Capping qty from ${qty.toFixed(6)} to ${maxAffordableQty.toFixed(6)} (available balance: $${availableBalance.toFixed(2)})`
+    );
+    qty = maxAffordableQty;
+  }
 
   // Clamp to minimum
   if (qty < KRAKEN.MIN_ORDER_ETH) {

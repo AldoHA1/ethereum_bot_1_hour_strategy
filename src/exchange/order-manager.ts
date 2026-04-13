@@ -13,11 +13,34 @@ export async function placeMarketOrder(
   volume: number,
   stopLossPrice?: number
 ): Promise<OrderResult | null> {
-  const vol = roundDown(volume, 8);
+  let vol = roundDown(volume, 8);
 
   if (vol < KRAKEN.MIN_ORDER_ETH) {
     logger.warn(`Order volume ${vol} below minimum ${KRAKEN.MIN_ORDER_ETH}, skipping`);
     return null;
+  }
+
+  // For sell orders, verify we actually hold enough ETH
+  if (side === 'sell') {
+    try {
+      const balances = await rest.getBalance();
+      // Kraken returns ETH balance under 'XETH' or 'ETH'
+      const ethBalance = parseFloat(balances['XETH'] || balances['ETH'] || '0');
+      if (ethBalance < KRAKEN.MIN_ORDER_ETH) {
+        logger.warn(`Sell skipped: ETH balance ${ethBalance} below minimum`);
+        return null;
+      }
+      if (vol > ethBalance) {
+        logger.warn(`Capping sell volume from ${vol} to ${ethBalance} (actual ETH balance)`);
+        vol = roundDown(ethBalance, 8);
+        if (vol < KRAKEN.MIN_ORDER_ETH) {
+          logger.warn(`Capped sell volume ${vol} below minimum, skipping`);
+          return null;
+        }
+      }
+    } catch (err) {
+      logger.warn(`Failed to check ETH balance before sell: ${err}`);
+    }
   }
 
   try {

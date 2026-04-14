@@ -33,6 +33,12 @@ export class PositionManager {
     snapshot: IndicatorSnapshot,
     cbState: CircuitBreakerState
   ): Promise<Position | null> {
+    // Spot trading only supports long positions — selling requires holding ETH
+    if (signal.side === 'short') {
+      logger.warn('Short entry rejected — not supported on spot. Use exit logic to close longs.');
+      return null;
+    }
+
     // Check pyramiding limit
     const canScaleIn =
       STRATEGY.USE_SCALE_IN &&
@@ -78,9 +84,13 @@ export class PositionManager {
         : snapshot.currentClose + slDist;
 
     const side = signal.side === 'long' ? 'buy' : 'sell';
-    const result = await orderManager.placeMarketOrder(side, qty, slPrice);
+    const result = await orderManager.placeMarketOrder(side, qty);
 
     if (!result) return null;
+
+    // Place stop-loss as a separate order so we control its lifecycle
+    const slSide = signal.side === 'long' ? 'sell' : 'buy';
+    const slResult = await orderManager.placeStopLoss(slSide, qty, slPrice);
 
     const pos = createPosition({
       side: signal.side,
@@ -89,6 +99,10 @@ export class PositionManager {
       atr: snapshot.atr14,
       orderTxid: result.txid,
     });
+
+    if (slResult) {
+      pos.slOrderId = slResult.txid;
+    }
 
     this.positions.push(pos);
     logger.info(
@@ -123,6 +137,14 @@ export class PositionManager {
       return 0;
     }
 
+    // Cancel stop-loss BEFORE selling to release reserved funds on Kraken
+    if (pos.slOrderId) {
+      await orderManager.cancelOrderById(pos.slOrderId);
+      pos.slOrderId = null;
+    } else {
+      await orderManager.cancelOpenStopLosses(KRAKEN.ETH_PAIR);
+    }
+
     const side = pos.side === 'long' ? 'sell' : 'buy';
     const result = await orderManager.placeMarketOrder(side, closeQty);
 
@@ -144,11 +166,14 @@ export class PositionManager {
     // Remove position if fully closed
     if (pos.remainingQty < KRAKEN.MIN_ORDER_ETH) {
       this.removePosition(pos.id);
-    }
-
-    // Cancel associated SL if fully closed
-    if (pos.remainingQty < KRAKEN.MIN_ORDER_ETH && pos.slOrderId) {
-      await orderManager.cancelOrderById(pos.slOrderId);
+    } else {
+      // Re-place stop-loss for remaining qty
+      const slSide = pos.side === 'long' ? 'sell' : 'buy';
+      const slPrice = this.calculateStopLossPrice(pos);
+      const slResult = await orderManager.placeStopLoss(slSide, pos.remainingQty, slPrice);
+      if (slResult) {
+        pos.slOrderId = slResult.txid;
+      }
     }
 
     return closeQty;
@@ -158,6 +183,14 @@ export class PositionManager {
     pos: Position,
     decision: ExitDecision
   ): Promise<number> {
+    // Cancel stop-loss BEFORE selling to release reserved funds on Kraken
+    if (pos.slOrderId) {
+      await orderManager.cancelOrderById(pos.slOrderId);
+      pos.slOrderId = null;
+    } else {
+      await orderManager.cancelOpenStopLosses(KRAKEN.ETH_PAIR);
+    }
+
     const side = pos.side === 'long' ? 'sell' : 'buy';
     const result = await orderManager.placeMarketOrder(side, pos.remainingQty);
 
@@ -168,12 +201,21 @@ export class PositionManager {
       `Full exit: ${pos.id} ${decision.reason} closed=${qty.toFixed(6)} — ${decision.description}`
     );
 
-    if (pos.slOrderId) {
-      await orderManager.cancelOrderById(pos.slOrderId);
-    }
-
     this.removePosition(pos.id);
     return qty;
+  }
+
+  private calculateStopLossPrice(pos: Position): number {
+    if (pos.trailingStop !== null) {
+      return pos.trailingStop;
+    }
+    if (pos.breakevenActive) {
+      return pos.entryPrice;
+    }
+    const slDist = pos.atrAtEntry * STRATEGY.SL_ATR_MULT;
+    return pos.side === 'long'
+      ? pos.entryPrice - slDist
+      : pos.entryPrice + slDist;
   }
 
   private removePosition(posId: string): void {

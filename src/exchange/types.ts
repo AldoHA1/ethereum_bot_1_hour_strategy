@@ -24,7 +24,15 @@ export interface KrakenTradeBalance {
 
 export interface KrakenOrder {
   txid?: string[];
-  descr?: { order: string };
+  descr?: {
+    order: string;
+    pair?: string;
+    type?: string;      // 'buy' | 'sell'
+    ordertype?: string; // 'market' | 'limit' | 'stop-loss' | etc.
+    price?: string;
+    price2?: string;
+    leverage?: string;
+  };
   status?: string;
   opentm?: number;
   closetm?: number;

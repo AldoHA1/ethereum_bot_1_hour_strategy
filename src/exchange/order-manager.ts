@@ -11,7 +11,6 @@ export interface OrderResult {
 export async function placeMarketOrder(
   side: 'buy' | 'sell',
   volume: number,
-  stopLossPrice?: number
 ): Promise<OrderResult | null> {
   let vol = roundDown(volume, 8);
 
@@ -20,18 +19,36 @@ export async function placeMarketOrder(
     return null;
   }
 
-  // For sell orders, verify we actually hold enough ETH
+  // For sell orders, verify we actually hold enough *available* ETH
   if (side === 'sell') {
     try {
       const balances = await rest.getBalance();
-      // Kraken returns ETH balance under 'XETH' or 'ETH'
-      const ethBalance = parseFloat(balances['XETH'] || balances['ETH'] || '0');
+      const totalEth = parseFloat(balances['XETH'] || balances['ETH'] || '0');
+
+      // Subtract ETH reserved by open sell orders (stop-losses, limits, etc.)
+      let reservedEth = 0;
+      try {
+        const openOrders = await rest.getOpenOrders();
+        for (const [, order] of Object.entries(openOrders.open || {})) {
+          if (order.descr?.type === 'sell' || (order.descr?.order || '').toLowerCase().startsWith('sell')) {
+            const orderVol = parseFloat(order.vol || '0');
+            const execVol = parseFloat(order.vol_exec || '0');
+            reservedEth += orderVol - execVol;
+          }
+        }
+      } catch (e) {
+        logger.warn(`Could not check open orders for reserved ETH: ${e}`);
+      }
+
+      const ethBalance = totalEth - reservedEth;
+      logger.debug(`ETH balance: total=${totalEth.toFixed(8)} reserved=${reservedEth.toFixed(8)} available=${ethBalance.toFixed(8)}`);
+
       if (ethBalance < KRAKEN.MIN_ORDER_ETH) {
-        logger.warn(`Sell skipped: ETH balance ${ethBalance} below minimum`);
+        logger.warn(`Sell skipped: available ETH ${ethBalance.toFixed(8)} below minimum (total=${totalEth.toFixed(8)}, reserved=${reservedEth.toFixed(8)})`);
         return null;
       }
       if (vol > ethBalance) {
-        logger.warn(`Capping sell volume from ${vol} to ${ethBalance} (actual ETH balance)`);
+        logger.warn(`Capping sell volume from ${vol} to ${ethBalance.toFixed(8)} (available ETH)`);
         vol = roundDown(ethBalance, 8);
         if (vol < KRAKEN.MIN_ORDER_ETH) {
           logger.warn(`Capped sell volume ${vol} below minimum, skipping`);
@@ -50,11 +67,6 @@ export async function placeMarketOrder(
       ordertype: 'market',
       volume: vol.toString(),
     };
-
-    if (stopLossPrice) {
-      params.close_ordertype = 'stop-loss';
-      params.close_price = roundDown(stopLossPrice, 2).toString();
-    }
 
     const result = await rest.addOrder(params);
     const txid = result.txid[0];
@@ -105,6 +117,32 @@ export async function cancelOrderById(txid: string): Promise<boolean> {
   } catch (err) {
     logger.error(`Failed to cancel order ${txid}: ${err}`);
     return false;
+  }
+}
+
+/**
+ * Cancel any open stop-loss sell orders that are reserving ETH.
+ * Uses structured descr fields from Kraken (pair may be XETHZUSD, not ETHUSD).
+ */
+export async function cancelOpenStopLosses(pair: string): Promise<void> {
+  try {
+    const result = await rest.getOpenOrders();
+    for (const [txid, order] of Object.entries(result.open || {})) {
+      const descr = order.descr;
+      if (!descr) continue;
+
+      const isStopLoss = descr.ordertype === 'stop-loss' ||
+        (descr.order || '').toLowerCase().includes('stop');
+      const matchesPair = descr.pair?.includes('ETH') ||
+        (descr.order || '').includes('ETH');
+
+      if (isStopLoss && matchesPair) {
+        logger.info(`Cancelling stop-loss order ${txid}: ${descr.order}`);
+        await cancelOrderById(txid);
+      }
+    }
+  } catch (err) {
+    logger.warn(`Failed to cancel open stop-losses: ${err}`);
   }
 }
 

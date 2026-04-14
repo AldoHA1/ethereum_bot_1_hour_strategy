@@ -11,6 +11,7 @@ import {
 import {
   checkExits,
   updatePositionLevels,
+  ExitDecision,
 } from './strategy/exit-manager';
 import {
   canTrade,
@@ -186,14 +187,59 @@ class TradingBot {
     if (signal) {
       logger.info(`Signal: ${signal.side.toUpperCase()} (MA crossover)`);
 
-      const pos = await this.positionManager.executeEntry(
-        signal,
-        snapshot,
-        this.state.circuitBreaker
-      );
+      if (signal.side === 'long') {
+        const pos = await this.positionManager.executeEntry(
+          signal,
+          snapshot,
+          this.state.circuitBreaker
+        );
 
-      if (pos) {
-        logger.info(`New position opened: ${pos.id}`);
+        if (pos) {
+          logger.info(`New position opened: ${pos.id}`);
+        }
+      } else {
+        // Spot trading: a bearish MA cross means "close open longs", not "open a short".
+        // We can't short on spot — selling requires holding ETH.
+        const longs = this.positionManager
+          .getPositions()
+          .filter((p) => p.side === 'long');
+
+        for (const pos of longs) {
+          const decision: ExitDecision = {
+            positionId: pos.id,
+            reason: 'ma_cross_exit',
+            closePercent: 100,
+            description: 'MA bearish crossover — closing long position',
+          };
+          const closedQty = await this.positionManager.executeExit(decision);
+
+          if (closedQty > 0) {
+            const feesEst =
+              closedQty * snapshot.currentClose * KRAKEN.TAKER_FEE +
+              closedQty * pos.entryPrice * KRAKEN.TAKER_FEE;
+            const pnl =
+              (snapshot.currentClose - pos.entryPrice) * closedQty - feesEst;
+
+            this.state.circuitBreaker.currentEquity += pnl;
+            this.state.circuitBreaker = recordTradeResult(
+              this.state.circuitBreaker,
+              pnl
+            );
+
+            recordTrade({
+              position: pos,
+              exitPrice: snapshot.currentClose,
+              exitQty: closedQty,
+              exitReason: 'ma_cross_exit',
+              feesEst,
+              equityAfter: this.state.circuitBreaker.currentEquity,
+            });
+          }
+        }
+
+        if (longs.length === 0) {
+          logger.info('Short signal ignored — no open longs to close (spot mode)');
+        }
       }
     }
 
